@@ -4,7 +4,7 @@ use ExtUtils::MakeMaker;
 # the contents of the Makefile that is written.
 WriteMakefile(
     NAME              => 'DBIx::Brev',
-    VERSION_FROM      => 'lib/DBI/Brev.pm', # finds $VERSION
+    VERSION_FROM      => 'lib/DBIx/Brev.pm', # finds $VERSION
     PREREQ_PM         => {
         "Config::General" => 2.51,
         "DBIx::Connector" => 0.53,

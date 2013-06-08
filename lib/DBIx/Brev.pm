@@ -51,10 +51,8 @@ sub load_config {
         USERPROFILE HOME ALLUSERSPROFILE APPDATA ProgramData SYSTEMROOT WINDIR
     )) : ($ENV{HOME},'/etc');
     my $fd = $mswin?q{\\}:q{/};
-    #debug('path:%s',\@path);
     my ($config_file) = grep defined && -f,@_,$ENV{DBI_CONF},map $_.$fd.q{dbi.conf},@path;
 
-    #debug('config_file:%s',$config_file);
     die "no config file found!" unless $config_file;
     %config = Config::General->new($config_file)->getall;
 }
@@ -84,7 +82,6 @@ sub db_use {
             ()
             ;
         die "can't find out keys for connection $db_alias!" unless $dsn;
-        #debug('$user,$password,$dsn:%s',"$user,$password,$dsn");
         $local_dbc = DBIx::Connector->new($dsn, $user, $password, $options);
         $local_dbc->mode($connection_mode);
         $dbc{$db_alias} = $dbc;
@@ -118,13 +115,10 @@ sub shift_connection(\@) {
 
 sub get_sth
 {
-    #debug('@_:%s',scalar @_);
     my $dbc = shift_connection(@_);
-    #debug('@_:%s',scalar @_);
     my ($sql,@bind_values) = @_;
     my $executed;
     my $sth;
-    #debug('sql:%s,%s',$sql,\@bind_values);
     $dbc->run(sub {$executed = ($sth = $_->prepare($sql)) && $sth->execute(@bind_values);});
     my $err = $@ or $sth->errstr;
     die "$err\n[$sql]" if $err;
