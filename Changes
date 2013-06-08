@@ -1,0 +1,6 @@
+Revision history for Perl extension DBI::Brev.
+
+0.01  Fri May 31 09:22:27 2013
+	- original version; created by h2xs 1.23 with options
+		-AX DBI::Brev
+
