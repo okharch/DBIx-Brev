@@ -3,13 +3,15 @@ package DBIx::Brev;
 use strict;
 use warnings;
 
-use Config::General;
 use DBI;
-use DBIx::Connector;
-use SQL::SplitStatement;
+
+our $use_config  = eval q{use Config::General};
+our $use_sqlsplit = eval q{use SQL::SplitStatement};
+our $use_connector = eval q{use DBIx::Connector};
+
 use Scalar::Util qw(looks_like_number);
 
-our $VERSION = '0.01';
+our $VERSION = '0.02';
 
 use base 'Exporter';
 
@@ -26,6 +28,20 @@ db_use
 dbc
 quote
 );
+
+my ($dbh,$dbc);
+
+sub dbc {
+    $dbc = $_[0] if @_;
+    $dbh = $dbc unless $use_connector;
+    $dbc;
+}
+
+sub dbh {
+    $dbh = $_[0] if @_;
+    $dbc = $dbh unless $use_connector;
+    $dbh;
+}
 
 sub shift_params(&\@) {
     my ($predicate,$params) = @_;
@@ -57,8 +73,6 @@ sub load_config {
     %config = Config::General->new($config_file)->getall;
 }
 
-my $dbc;
-sub dbc {$dbc}
 my %dbc; # cache of dbx connections for fast switching between handles
 sub db_use {
     my ($db_alias,$options) = @_;
@@ -82,17 +96,18 @@ sub db_use {
             ()
             ;
         die "can't find out keys for connection $db_alias!" unless $dsn;
-        $local_dbc = DBIx::Connector->new($dsn, $user, $password, $options);
-        $local_dbc->mode($connection_mode);
+        my @c = ($dsn, $user, $password, $options);
+        $local_dbc = $use_connector?DBIx::Connector->new(@c):DBI::connect(@c);
+        $local_dbc->mode($connection_mode) if $use_connector;
         $dbc{$db_alias} = $dbc;
     }
     return $local_dbc if $keep_default;
-    $dbc = $local_dbc;
+    dbc($local_dbc);
 }
 
 sub quote {
     die "connect to db first!" unless $dbc;
-    $dbc->dbh()->quote(@_);
+    ($use_connector?$dbc->dbh():$dbh)->quote(@_);
 }
 
 sub import { my ($class,$db_alias,$db_options) = @_;
@@ -102,7 +117,7 @@ sub import { my ($class,$db_alias,$db_options) = @_;
 
 sub shift_connection(\@) {
     my $c = shift;
-    my $local_dbc = shift_params {UNIVERSAL::isa($_,'DBIx::Connector')} @$c;
+    my $local_dbc = shift_params {UNIVERSAL::isa($_,$use_connector?'DBIx::Connector':'DBI::db')} @$c;
     unless ($local_dbc) {
         my $db_alias = shift_params {!ref($_) && !m{\s}} @$c;
         if ($db_alias) {
@@ -119,7 +134,11 @@ sub get_sth
     my ($sql,@bind_values) = @_;
     my $executed;
     my $sth;
-    $dbc->run(sub {$executed = ($sth = $_->prepare($sql)) && $sth->execute(@bind_values);});
+    if ($use_connector) {
+        $dbc->run(sub {$executed = ($sth = $_->prepare($sql)) && $sth->execute(@bind_values);});
+    } else {
+        $executed = ($sth = $dbc->prepare($sql)) && $sth->execute(@bind_values);
+    }
     my $err = $@ or $sth->errstr;
     die "$err\n[$sql]" if $err;
     unless  ($executed) {
@@ -140,7 +159,7 @@ sub sql_query
 
 sub sql_in {
     my $dbc = shift_connection(@_);
-    my $dbh = $dbc->dbh();
+    my $dbh = $use_connector?$dbc->dbh():$dbc;
     my $list = join ",",map {looks_like_number($_)?$_:$dbh->quote($_)} sql_query($dbc,@_);    
     sprintf(" in (%s)",$list || 'NULL');
 }
@@ -198,7 +217,7 @@ sub sql_exec
     my $splitter = SQL::SplitStatement->new($splitter_options);
     my ( $statements, $placeholders ) = $splitter->split_with_placeholders( $sql_code );
     my $rows_affected = 0;
-    my $dbh = $dbc->dbh();
+    my $dbh = $use_connector?$dbc->dbh():$dbc;
     $dbh->{AutoCommit} = 0;  # enable transactions, if possible
     $dbh->{RaiseError} = 1;
     die $@ unless eval {
