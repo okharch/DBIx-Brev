@@ -97,7 +97,7 @@ sub db_use {
             ;
         die "can't find out keys for connection $db_alias!" unless $dsn;
         my @c = ($dsn, $user, $password, $options);
-        $local_dbc = $use_connector?DBIx::Connector->new(@c):DBI::connect(@c);
+        $local_dbc = $use_connector?DBIx::Connector->new(@c):DBI->connect(@c);
         $local_dbc->mode($connection_mode) if $use_connector;
         $dbc{$db_alias} = $dbc;
     }
@@ -245,7 +245,7 @@ sub inserts {
     # make fixup for dbh
     #$dbc->run(fixup => sub {$_->do(q{SELECT 1});});
     # do all inserts in one transaction
-    my $dbh = $dbc->dbh;
+    my $dbh = $use_connector?$dbc->dbh():$dbc;
     $dbh->{AutoCommit} = 0;  # enable transactions, if possible
     $dbh->{RaiseError} = 1;
     die $@ unless eval {
@@ -256,7 +256,8 @@ sub inserts {
             $offset += $step;
             sleep($delay) if $updated;
             my $time = time;
-            $updated += $dbh->do(sprintf($sprintf_sql,$records));
+            my $sql = sprintf($sprintf_sql,$records);
+            $updated += $dbh->do($sql);
             # make next delay twice time of sql_exec if it was not explicitly specified
             $delay = (time - $time) * 2 unless exists $opts{delay};
         }
