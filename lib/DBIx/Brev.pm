@@ -212,23 +212,27 @@ sub sql_exec
     my $dbc = shift_connection(@_);
     my ($attr) = grep ref($_) eq 'HASH', @_,{};
     my ($sql_code,@bind_values) = grep ref($_) ne 'HASH', @_;
-    my $splitter_options = delete $attr->{splitter_options}||{};
-    my $no_commit = delete $attr->{no_commit};
-    my $splitter = SQL::SplitStatement->new($splitter_options);
-    my ( $statements, $placeholders ) = $splitter->split_with_placeholders( $sql_code );
     my $rows_affected = 0;
     my $dbh = $use_connector?$dbc->dbh():$dbc;
-    $dbh->{AutoCommit} = 0;  # enable transactions, if possible
-    $dbh->{RaiseError} = 1;
-    die $@ unless eval {
-        for my $statement (@$statements) {
-            my $placeholders_count = shift(@$placeholders);
-            my @sbind_values = splice @bind_values, 0, $placeholders_count;
-            $rows_affected += $dbh->do($statement,$attr,@sbind_values);
-        }
-        $dbh->commit unless $no_commit;
-        1;
-    };    
+	if ($use_sqlsplit) {	
+		my $splitter_options = delete $attr->{splitter_options}||{};
+		my $no_commit = delete $attr->{no_commit};
+		my $splitter = SQL::SplitStatement->new($splitter_options);
+		my ( $statements, $placeholders ) = $splitter->split_with_placeholders( $sql_code );
+		$dbh->{AutoCommit} = 0;  # enable transactions, if possible
+		$dbh->{RaiseError} = 1;
+		die $@ unless eval {
+			for my $statement (@$statements) {
+				my $placeholders_count = shift(@$placeholders);
+				my @sbind_values = splice @bind_values, 0, $placeholders_count;
+				$rows_affected += $dbh->do($statement,$attr,@sbind_values);
+			}
+			$dbh->commit unless $no_commit;
+			1;
+		};    
+	} else {
+		$rows_affected += $dbh->do($sql_code,$attr,@bind_values);
+	}
     return $rows_affected;
 }
     
