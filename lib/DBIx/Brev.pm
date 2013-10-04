@@ -5,9 +5,9 @@ use warnings;
 
 use DBI;
 
-our $use_config  = eval q{use Config::General};
-our $use_sqlsplit = eval q{use SQL::SplitStatement};
-our $use_connector = eval q{use DBIx::Connector};
+our $use_config  = eval q{use Config::General;1};
+our $use_sqlsplit = eval q{use SQL::SplitStatement;1};
+our $use_connector = eval q{use DBIx::Connector;1};
 
 use Scalar::Util qw(looks_like_number);
 
@@ -56,7 +56,12 @@ sub shift_params(&\@) {
 }
 
 my %config;
+{
+my $config_loaded;
 sub load_config {
+    return if $config_loaded;
+    $config_loaded = 1;
+    return unless $use_config;
     my $config = shift_params {ref($_) eq 'HASH'} @_;
     if ($config) {
         %config = %$config;
@@ -68,36 +73,30 @@ sub load_config {
     )) : ($ENV{HOME},'/etc');
     my $fd = $mswin?q{\\}:q{/};
     my ($config_file) = grep defined && -f,@_,$ENV{DBI_CONF},map $_.$fd.q{dbi.conf},@path;
-
-    die "no config file found!" unless $config_file;
-    %config = Config::General->new($config_file)->getall;
+    %config = Config::General->new($config_file)->getall if $config_file;
+}
 }
 
 my %dbc; # cache of dbx connections for fast switching between handles
-sub db_use {
-    my ($db_alias,$options) = @_;
+sub db_use {    
+    my ($db_alias,%options) = @_;
+    my @connect = ($db_alias,@options{qw(username password)});
+    my $options = $options{options};
     $options ||= {RaiseError => 1,AutoCommit => 1};
     # subroutine changes default dbc if it is called in void context or $dbc is undefined
     my $keep_default = $dbc && defined(wantarray); 
     my $connection_mode = delete $options->{connection_mode} || 'fixup';
     my ($local_dbc) = $dbc{$db_alias};
     unless ($local_dbc) {
-        load_config() unless keys %config;
+        load_config() if $use_config && keys(%config)==0;
         my ($alias,$mode) = split /:/,$db_alias;
         my $databases = $config{database};
         die "wrong config" unless $databases;
-        my @keys = qw(user password dsn);        
-        my ($user,$password,$dsn) = exists $databases->{$db_alias}?
-            @{$databases->{$db_alias}}{@keys}
-            :
-            exists $databases->{$alias}?
-            @{$databases->{$alias}}{map $mode."_$_",@keys}
-            :
-            ()
-            ;
-        die "can't find out keys for connection $db_alias!" unless $dsn;
-        my @c = ($dsn, $user, $password, $options);
-        $local_dbc = $use_connector?DBIx::Connector->new(@c):DBI->connect(@c);
+        my @keys = qw(data_source username password);        
+        @connect = @{$databases->{$alias}}{map $mode."_$_",@keys} if exists $databases->{$alias};
+        @connect = @{$databases->{$db_alias}}{@keys} if exists $databases->{$db_alias};
+        push @connect,$options;
+        $local_dbc = $use_connector?DBIx::Connector->new(@connect):DBI->connect(@connect);
         $local_dbc->mode($connection_mode) if $use_connector;
         $dbc{$db_alias} = $dbc;
     }
@@ -110,8 +109,8 @@ sub quote {
     ($use_connector?$dbc->dbh():$dbh)->quote(@_);
 }
 
-sub import { my ($class,$db_alias,$db_options) = @_;
-    db_use($db_alias,$db_options) if $db_alias;
+sub import { my ($class,$db_alias,@options) = @_;
+    db_use($db_alias,@options) if $db_alias;
     $class->export_to_level(1);
 }
 
@@ -214,25 +213,25 @@ sub sql_exec
     my ($sql_code,@bind_values) = grep ref($_) ne 'HASH', @_;
     my $rows_affected = 0;
     my $dbh = $use_connector?$dbc->dbh():$dbc;
-	if ($use_sqlsplit) {	
-		my $splitter_options = delete $attr->{splitter_options}||{};
-		my $no_commit = delete $attr->{no_commit};
-		my $splitter = SQL::SplitStatement->new($splitter_options);
-		my ( $statements, $placeholders ) = $splitter->split_with_placeholders( $sql_code );
-		$dbh->{AutoCommit} = 0;  # enable transactions, if possible
-		$dbh->{RaiseError} = 1;
-		die $@ unless eval {
-			for my $statement (@$statements) {
-				my $placeholders_count = shift(@$placeholders);
-				my @sbind_values = splice @bind_values, 0, $placeholders_count;
-				$rows_affected += $dbh->do($statement,$attr,@sbind_values);
-			}
-			$dbh->commit unless $no_commit;
-			1;
-		};    
-	} else {
-		$rows_affected += $dbh->do($sql_code,$attr,@bind_values);
-	}
+    if ($use_sqlsplit) {    
+        my $splitter_options = delete $attr->{splitter_options}||{};
+        my $no_commit = delete $attr->{no_commit};
+        my $splitter = SQL::SplitStatement->new($splitter_options);
+        my ( $statements, $placeholders ) = $splitter->split_with_placeholders( $sql_code );
+        $dbh->{AutoCommit} = 0;  # enable transactions, if possible
+        $dbh->{RaiseError} = 1;
+        die $@ unless eval {
+            for my $statement (@$statements) {
+                my $placeholders_count = shift(@$placeholders);
+                my @sbind_values = splice @bind_values, 0, $placeholders_count;
+                $rows_affected += $dbh->do($statement,$attr,@sbind_values);
+            }
+            $dbh->commit unless $no_commit;
+            1;
+        };    
+    } else {
+        $rows_affected += $dbh->do($sql_code,$attr,@bind_values);
+    }
     return $rows_affected;
 }
     
@@ -308,6 +307,15 @@ without switching default database connection.
 To make it work put to ~/dbi.conf or /etc/dbi.conf database aliases and switch easily between databases.
 It's suitable for one liners where less code is best approach.
 Also it will be good for everyone who likes laconic code.
+
+=head1 PPM
+DBIx::Brev is pure perl module and can be used without installation additional modules and without creating dbi.conf with aliases.
+This module can be installed and used just by copying it to some PERL5LIB directory.
+L<Config::General>, L<DBIx::Connector>, L<SQL::SplitStatement> powerlift it and provide some usful features 
+but if you have restricted environment where you can't deploy those modules it will work allright without them.
+
+For example
+perl -MDBIx::Brev=dbi:SQLite:dbname=~/svn/reponame.sqlite -e'print sql_value(q{select count(*) from commits})'
 
 =head1 EXPORT
 
