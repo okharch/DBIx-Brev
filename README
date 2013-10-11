@@ -20,6 +20,8 @@ To install this module type the following:
    make
    make test
    make install
+   
+Notice: it can be used without installation - just download DBIx/Brev.pm and put it where perl will be able to find it.
 
 DEPENDENCIES
 
@@ -27,6 +29,7 @@ This module requires these other modules and libraries:
 
 DBIx::Connector
 Config::General
+
 
 COPYRIGHT AND LICENCE
 

@@ -93,7 +93,7 @@ sub db_use {
         my $databases = $config{database};
         die "wrong config" unless $databases;
         my @keys = qw(data_source username password);        
-        @connect = @{$databases->{$alias}}{map $mode."_$_",@keys} if exists $databases->{$alias};
+        @connect = @{$databases->{$alias}}{map $mode."_$_",@keys} if exists $databases->{$alias} && $mode;
         @connect = @{$databases->{$db_alias}}{@keys} if exists $databases->{$db_alias};
         push @connect,$options;
         $local_dbc = $use_connector?DBIx::Connector->new(@connect):DBI->connect(@connect);
