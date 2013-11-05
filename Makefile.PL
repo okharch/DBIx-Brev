@@ -15,5 +15,5 @@ WriteMakefile(
     TEST_REQUIRES     => { 'DBD::SQLite' => 1.27, }, # ExtUtils::MakeMaker => 6.66
     ($] >= 5.005 ?     ## Add these new keywords supported since 5.005
       (ABSTRACT  => 'framework for laconic DBI', # retrieve abstract from module
-       AUTHOR         => 'Oleksandr Kharchenko <okharch@okharch.com>') : ()),
+       AUTHOR         => 'Oleksandr Kharchenko <okharch@gmail.com>') : ()),
 );
